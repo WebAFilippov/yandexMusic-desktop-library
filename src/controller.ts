@@ -314,3 +314,65 @@ export class YandexMusicController extends EventEmitter {
     return this.sendCommand({ command: 'toggle_mute' });
   }
 }
+
+/**
+ * Typed EventEmitter interface for YandexMusicController
+ * Provides type-safe event handling with proper IntelliSense support
+ */
+export interface YandexMusicController {
+  /**
+   * Listen for track change events
+   * @param event - 'track'
+   * @param listener - Callback receiving TrackData or null when Yandex Music is not running
+   */
+  on(event: 'track', listener: (data: TrackData | null) => void): this;
+
+  /**
+   * Listen for volume change events
+   * @param event - 'volume'
+   * @param listener - Callback receiving VolumeData
+   */
+  on(event: 'volume', listener: (data: VolumeData) => void): this;
+
+  /**
+   * Listen for error events
+   * @param event - 'error'
+   * @param listener - Callback receiving Error object
+   */
+  on(event: 'error', listener: (error: Error) => void): this;
+
+  /**
+   * Listen for exit events
+   * @param event - 'exit'
+   * @param listener - Callback receiving exit code
+   */
+  on(event: 'exit', listener: (code: number | null) => void): this;
+
+  /**
+   * Emit track event
+   * @param event - 'track'
+   * @param data - TrackData or null
+   */
+  emit(event: 'track', data: TrackData | null): boolean;
+
+  /**
+   * Emit volume event
+   * @param event - 'volume'
+   * @param data - VolumeData
+   */
+  emit(event: 'volume', data: VolumeData): boolean;
+
+  /**
+   * Emit error event
+   * @param event - 'error'
+   * @param error - Error object
+   */
+  emit(event: 'error', error: Error): boolean;
+
+  /**
+   * Emit exit event
+   * @param event - 'exit'
+   * @param code - Exit code or null
+   */
+  emit(event: 'exit', code: number | null): boolean;
+}
