@@ -1,0 +1,316 @@
+import { spawn, ChildProcess } from 'child_process';
+import { createInterface } from 'readline';
+import { EventEmitter } from 'events';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { promises as fs } from 'fs';
+import { ControllerOptions, TrackData, VolumeData } from './types.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+interface CommandMessage {
+  command: string;
+  stepPercent?: number;
+  value?: number;
+}
+
+interface SessionMessage {
+  type: 'session';
+  data: TrackData | null;
+}
+
+/**
+ * Controller for Yandex Music desktop application on Windows.
+ * Provides both event-based and promise-based APIs for controlling playback and volume.
+ * 
+ * @example
+ * ```typescript
+ * import { YandexMusicController } from 'yandex-music-desktop-library';
+ * 
+ * const controller = new YandexMusicController({
+ *   thumbnailSize: 200,
+ *   thumbnailQuality: 90,
+ *   autoRestart: true
+ * });
+ * 
+ * // Event-based API
+ * controller.on('track', (track) => {
+ *   console.log(`Now playing: ${track?.title} by ${track?.artist}`);
+ * });
+ * 
+ * await controller.start();
+ * await controller.playPause();
+ * await controller.setVolume(75);
+ * ```
+ */
+export class YandexMusicController extends EventEmitter {
+  private process?: ChildProcess;
+  private options: Required<ControllerOptions>;
+  private restartTimer?: NodeJS.Timeout;
+  private isStarted = false;
+  private executablePath: string;
+
+  /**
+   * Creates a new YandexMusicController instance
+   * @param options - Configuration options
+   */
+  constructor(options: ControllerOptions = {}) {
+    super();
+    this.options = {
+      thumbnailSize: this.clamp(options.thumbnailSize ?? 150, 1, 1000),
+      thumbnailQuality: this.clamp(options.thumbnailQuality ?? 85, 1, 100),
+      autoRestart: options.autoRestart ?? true,
+      restartDelay: Math.max(options.restartDelay ?? 1000, 0)
+    };
+
+    this.executablePath = join(__dirname, '..', 'bin', 'win-x64', 'YandexMusicController.exe');
+  }
+
+  private clamp(value: number, min: number, max: number): number {
+    return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * Starts the controller and spawns the C# process
+   * @returns Promise that resolves when controller is ready
+   * @throws Error if controller is already running or fails to start
+   */
+  async start(): Promise<void> {
+    if (this.isRunning()) {
+      throw new Error('Controller is already running');
+    }
+
+    // Verify executable exists
+    try {
+      await fs.access(this.executablePath);
+    } catch {
+      throw new Error(`Executable not found at: ${this.executablePath}`);
+    }
+
+    const args = [
+      `--thumbnail-size=${this.options.thumbnailSize}`,
+      `--thumbnail-quality=${this.options.thumbnailQuality}`
+    ];
+
+    return new Promise((resolve, reject) => {
+      try {
+        this.process = spawn(this.executablePath, args, {
+          windowsHide: true,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        this.process.on('error', (err) => {
+          this.emit('error', err);
+          reject(err);
+        });
+
+        this.process.on('exit', (code) => {
+          this.isStarted = false;
+          this.emit('exit', code);
+          
+          if (this.options.autoRestart && code !== 0 && !this.restartTimer) {
+            this.restartTimer = setTimeout(() => {
+              this.restartTimer = undefined;
+              this.start().catch(() => {
+                // Auto-restart failed, emit error
+                this.emit('error', new Error('Auto-restart failed'));
+              });
+            }, this.options.restartDelay);
+          }
+        });
+
+        // Handle stdout for JSON messages
+        if (this.process.stdout) {
+          const rl = createInterface({
+            input: this.process.stdout,
+            crlfDelay: Infinity
+          });
+
+          rl.on('line', (line) => {
+            try {
+              const msg = JSON.parse(line) as SessionMessage;
+              if (msg.type === 'session') {
+                this.emit('track', msg.data);
+                
+                // Also emit volume event when track data changes
+                if (msg.data) {
+                  this.emit('volume', {
+                    volume: msg.data.volume,
+                    isMuted: msg.data.isMuted
+                  });
+                }
+              }
+            } catch {
+              // Ignore non-JSON lines (debug output)
+            }
+          });
+        }
+
+        // Handle stderr for errors
+        if (this.process.stderr) {
+          const rl = createInterface({
+            input: this.process.stderr,
+            crlfDelay: Infinity
+          });
+
+          rl.on('line', (line) => {
+            this.emit('error', new Error(line));
+          });
+        }
+
+        // Wait a moment for process to initialize
+        setTimeout(() => {
+          this.isStarted = true;
+          resolve();
+        }, 500);
+
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+      }
+    });
+  }
+
+  /**
+   * Stops the controller and kills the C# process
+   * @returns Promise that resolves when process is terminated
+   */
+  async stop(): Promise<void> {
+    if (!this.isRunning()) {
+      return;
+    }
+
+    // Clear restart timer
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = undefined;
+    }
+
+    return new Promise((resolve) => {
+      if (!this.process) {
+        resolve();
+        return;
+      }
+
+      // Send close command
+      this.sendCommand({ command: 'close' });
+
+      // Wait for graceful exit
+      const timeout = setTimeout(() => {
+        this.process?.kill();
+        this.isStarted = false;
+        resolve();
+      }, 1000);
+
+      this.process.on('exit', () => {
+        clearTimeout(timeout);
+        this.isStarted = false;
+        resolve();
+      });
+    });
+  }
+
+  /**
+   * Checks if the controller is currently running
+   * @returns true if process is active
+   */
+  isRunning(): boolean {
+    return this.isStarted && this.process !== undefined && !this.process.killed;
+  }
+
+  private async sendCommand(cmd: CommandMessage): Promise<void> {
+    if (!this.isRunning()) {
+      throw new Error('Controller is not running. Call start() first.');
+    }
+
+    return new Promise((resolve, reject) => {
+      const message = JSON.stringify(cmd) + '\n';
+      this.process!.stdin!.write(message, (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
+  }
+
+  // Playback Controls
+
+  /**
+   * Start playback
+   */
+  async play(): Promise<void> {
+    return this.sendCommand({ command: 'play' });
+  }
+
+  /**
+   * Pause playback
+   */
+  async pause(): Promise<void> {
+    return this.sendCommand({ command: 'pause' });
+  }
+
+  /**
+   * Toggle between play and pause
+   */
+  async playPause(): Promise<void> {
+    return this.sendCommand({ command: 'playpause' });
+  }
+
+  /**
+   * Skip to next track
+   */
+  async next(): Promise<void> {
+    return this.sendCommand({ command: 'next' });
+  }
+
+  /**
+   * Skip to previous track
+   */
+  async previous(): Promise<void> {
+    return this.sendCommand({ command: 'previous' });
+  }
+
+  // Volume Controls
+
+  /**
+   * Increase volume by specified step
+   * @param stepPercent - Percentage to increase (default: 3)
+   */
+  async volumeUp(stepPercent: number = 3): Promise<void> {
+    return this.sendCommand({ 
+      command: 'volume_up', 
+      stepPercent: this.clamp(stepPercent, 1, 100) 
+    });
+  }
+
+  /**
+   * Decrease volume by specified step
+   * @param stepPercent - Percentage to decrease (default: 3)
+   */
+  async volumeDown(stepPercent: number = 3): Promise<void> {
+    return this.sendCommand({ 
+      command: 'volume_down', 
+      stepPercent: this.clamp(stepPercent, 1, 100) 
+    });
+  }
+
+  /**
+   * Set volume to specific value
+   * @param value - Volume level 0-100
+   */
+  async setVolume(value: number): Promise<void> {
+    return this.sendCommand({ 
+      command: 'set_volume', 
+      value: this.clamp(value, 0, 100) 
+    });
+  }
+
+  /**
+   * Toggle mute state
+   */
+  async toggleMute(): Promise<void> {
+    return this.sendCommand({ command: 'toggle_mute' });
+  }
+}

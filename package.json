@@ -1,0 +1,48 @@
+{
+  "name": "yandex-music-desktop-library",
+  "version": "1.0.0",
+  "description": "TypeScript library for controlling Yandex Music desktop application on Windows",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "win32"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "yandex",
+    "music",
+    "desktop",
+    "windows",
+    "media",
+    "controller",
+    "typescript"
+  ],
+  "author": "WebAFilippov",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/WebAFilippov/yandexMusic-desktop-library.git"
+  },
+  "bugs": {
+    "url": "https://github.com/WebAFilippov/yandexMusic-desktop-library/issues"
+  },
+  "homepage": "https://github.com/WebAFilippov/yandexMusic-desktop-library#readme",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist/**/*",
+    "bin/**/*",
+    "README.md",
+    "LICENSE"
+  ]
+}
