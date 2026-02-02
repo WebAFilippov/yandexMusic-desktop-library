@@ -25,6 +25,14 @@ export interface ControllerOptions {
    * @default 1000
    */
   restartDelay?: number;
+
+  /**
+   * Custom path to the C# executable. 
+   * If not provided, will try to auto-detect the executable.
+   * Useful for Electron production builds with asarUnpack.
+   * @default undefined (auto-detect)
+   */
+  executablePath?: string;
 }
 
 /**

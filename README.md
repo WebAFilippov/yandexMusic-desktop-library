@@ -121,6 +121,8 @@ app.on('before-quit', async () => {
 
 ### Production Build with electron-builder
 
+**Important:** The library includes a native C# executable (~90MB) that must be unpacked from the ASAR archive to work in production.
+
 Add to your `package.json`:
 
 ```json
@@ -133,7 +135,47 @@ Add to your `package.json`:
 }
 ```
 
-This ensures the C# executable is unpacked from the ASAR archive so it can be spawned.
+#### Auto-detection (Default)
+
+The library automatically detects the executable location in most cases:
+
+```typescript
+import ymc from 'yandex-music-desktop-library';
+
+// Works in both development and production
+const controller = new ymc();
+await controller.start();
+```
+
+#### Custom Executable Path (if auto-detection fails)
+
+If the library cannot find the executable automatically, provide a custom path:
+
+```typescript
+import ymc from 'yandex-music-desktop-library';
+import path from 'path';
+
+const controller = new ymc({
+  // Absolute path
+  executablePath: path.join(
+    process.resourcesPath,
+    'app.asar.unpacked',
+    'node_modules',
+    'yandex-music-desktop-library',
+    'bin',
+    'win-x64',
+    'YandexMusicController.exe'
+  )
+});
+
+await controller.start();
+```
+
+The library will try these paths in order:
+1. Custom `executablePath` (if provided)
+2. Standard npm location
+3. Electron asar.unpacked location
+4. Current working directory locations
 
 ## 📡 MQTT / ESP32 Integration
 
@@ -207,6 +249,7 @@ client.on('message', (topic, message) => {
 | `thumbnailQuality` | `number` | `85` | JPEG quality (1-100) |
 | `autoRestart` | `boolean` | `true` | Auto-restart on crash |
 | `restartDelay` | `number` | `1000` | Restart delay in milliseconds |
+| `executablePath` | `string` | `undefined` | Custom path to C# executable (auto-detected if not provided) |
 
 ### TrackData
 

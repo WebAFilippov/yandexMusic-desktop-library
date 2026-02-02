@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import { EventEmitter } from 'events';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, isAbsolute } from 'path';
 import { promises as fs } from 'fs';
 import { ControllerOptions, TrackData, VolumeData } from './types.js';
 
@@ -61,14 +61,102 @@ export class YandexMusicController extends EventEmitter {
       thumbnailSize: this.clamp(options.thumbnailSize ?? 150, 1, 1000),
       thumbnailQuality: this.clamp(options.thumbnailQuality ?? 85, 1, 100),
       autoRestart: options.autoRestart ?? true,
-      restartDelay: Math.max(options.restartDelay ?? 1000, 0)
+      restartDelay: Math.max(options.restartDelay ?? 1000, 0),
+      executablePath: options.executablePath ?? ''
     };
 
-    this.executablePath = join(__dirname, '..', 'bin', 'win-x64', 'YandexMusicController.exe');
+    // If executablePath is provided and absolute, use it directly
+    if (options.executablePath && isAbsolute(options.executablePath)) {
+      this.executablePath = options.executablePath;
+    } else {
+      // Auto-detect executable path
+      this.executablePath = this.findExecutablePath();
+    }
   }
 
   private clamp(value: number, min: number, max: number): number {
     return Math.min(Math.max(value, min), max);
+  }
+
+  /**
+   * Auto-detects the executable path by trying multiple locations
+   * - Standard npm location (development)
+   * - Electron asar.unpacked location
+   * - Relative paths
+   */
+  private findExecutablePath(): string {
+    const executableName = 'YandexMusicController.exe';
+    const possiblePaths: string[] = [];
+    
+    // 1. Standard development location from __dirname
+    possiblePaths.push(join(__dirname, '..', 'bin', 'win-x64', executableName));
+    
+    // 2. Check if running in Electron and use resources path
+    const resourcesPath = (process as any).resourcesPath;
+    if (resourcesPath) {
+      possiblePaths.push(
+        join(resourcesPath, 'app.asar.unpacked', 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName),
+        join(resourcesPath, 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName)
+      );
+    }
+    
+    // 3. Try relative from current working directory (for custom installations)
+    possiblePaths.push(
+      join(process.cwd(), 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName),
+      join(process.cwd(), 'bin', 'win-x64', executableName)
+    );
+    
+    // 4. Check for custom relative path from options
+    if (this.options.executablePath && !isAbsolute(this.options.executablePath)) {
+      possiblePaths.unshift(join(process.cwd(), this.options.executablePath));
+    }
+
+    return possiblePaths[0]; // Return first path, will be validated in start()
+  }
+
+  /**
+   * Validates and finds the actual executable by checking multiple paths
+   */
+  private async validateExecutablePath(): Promise<string> {
+    const executableName = 'YandexMusicController.exe';
+    const possiblePaths: string[] = [];
+    
+    // Always try the configured path first
+    possiblePaths.push(this.executablePath);
+    
+    // Additional fallback paths
+    possiblePaths.push(
+      // Standard npm location
+      join(__dirname, '..', 'bin', 'win-x64', executableName),
+      // Electron asar.unpacked
+      ...((process as any).resourcesPath ? [
+        join((process as any).resourcesPath, 'app.asar.unpacked', 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName),
+        join((process as any).resourcesPath, 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName)
+      ] : []),
+      // Relative paths
+      join(process.cwd(), 'node_modules', 'yandex-music-desktop-library', 'bin', 'win-x64', executableName),
+      join(process.cwd(), 'bin', 'win-x64', executableName)
+    );
+
+    // Try each path
+    for (const path of possiblePaths) {
+      try {
+        await fs.access(path);
+        return path; // Found it!
+      } catch {
+        // Path doesn't exist, try next
+        continue;
+      }
+    }
+
+    // None of the paths worked - throw with helpful message
+    throw new Error(
+      `YandexMusicController.exe not found. Tried paths:\n` +
+      possiblePaths.map(p => `  - ${p}`).join('\n') +
+      `\n\nPlease ensure the package is properly installed. ` +
+      `For Electron, add to your build config:\n` +
+      `"asarUnpack": ["node_modules/yandex-music-desktop-library/bin/**/*"]`
+    );
   }
 
   /**
@@ -81,12 +169,9 @@ export class YandexMusicController extends EventEmitter {
       throw new Error('Controller is already running');
     }
 
-    // Verify executable exists
-    try {
-      await fs.access(this.executablePath);
-    } catch {
-      throw new Error(`Executable not found at: ${this.executablePath}`);
-    }
+    // Validate and find the executable
+    const validPath = await this.validateExecutablePath();
+    this.executablePath = validPath;
 
     const args = [
       `--thumbnail-size=${this.options.thumbnailSize}`,
