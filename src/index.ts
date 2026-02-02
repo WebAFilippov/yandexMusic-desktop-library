@@ -14,8 +14,5 @@ export type {
   MediaData,
   VolumeData,
   ControllerEvents,
-  /**
-   * @deprecated Use MediaData instead. TrackData combined media and volume which are now separate.
-   */
-  TrackData
+  ConnectionState,
 } from './types.js';

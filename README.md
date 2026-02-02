@@ -36,26 +36,32 @@ const controller = new ymc({
   restartDelay: 1000       // Restart delay in ms (default: 1000)
 });
 
-// Event-based API - listen for track changes
-controller.on('track', (track) => {
-  if (track) {
-    console.log(`🎵 Now playing: ${track.title} by ${track.artist}`);
-    console.log(`📀 Album: ${track.album}`);
-    console.log(`🔊 Volume: ${track.volume}% (Muted: ${track.isMuted})`);
-    console.log(`▶️ Status: ${track.playbackStatus}`);
+// Event-based API - listen for media changes (track, artist, playback status)
+controller.on('media', (data) => {
+  if (data) {
+    console.log(`🎵 Now playing: ${data.title} by ${data.artist}`);
+    console.log(`📀 Album: ${data.album}`);
+    console.log(`▶️ Status: ${data.playbackStatus}`);
+    // Note: volume and isMuted are in a separate 'volume' event
   } else {
     console.log('⏹️ Yandex Music is not running');
   }
 });
 
-// Listen for volume changes
+// Listen for volume changes (separate from media)
 controller.on('volume', ({ volume, isMuted }) => {
-  console.log(`🔊 Volume changed: ${volume}% (Muted: ${isMuted})`);
+  console.log(`🔊 Volume: ${volume}% (Muted: ${isMuted})`);
 });
 
 // Handle errors
 controller.on('error', (error) => {
   console.error('Controller error:', error.message);
+});
+
+// Handle controller exit/restart
+controller.on('exit', (code) => {
+  console.log('Controller exited with code:', code);
+  // If autoRestart is true, controller will restart automatically
 });
 
 // Start the controller
@@ -104,13 +110,14 @@ ipcMain.handle('volume-up', (_, step) => controller.volumeUp(step));
 ipcMain.handle('volume-down', (_, step) => controller.volumeDown(step));
 ipcMain.handle('toggle-mute', () => controller.toggleMute());
 
-// Send track updates to renderer
-controller.on('track', (track) => {
-  mainWindow.webContents.send('track-update', track);
+// Send media updates to renderer (track info only)
+controller.on('media', (data) => {
+  mainWindow.webContents.send('media-update', data);
 });
 
-controller.on('volume', (volume) => {
-  mainWindow.webContents.send('volume-update', volume);
+// Send volume updates to renderer (separate from media)
+controller.on('volume', (data) => {
+  mainWindow.webContents.send('volume-update', data);
 });
 
 // Cleanup on quit
@@ -192,23 +199,29 @@ const client = mqtt.connect('mqtt://your-esp32-ip');
 await controller.start();
 
 // Send track data to ESP32
-controller.on('track', (track) => {
-  if (track) {
+controller.on('media', (data) => {
+  if (data) {
     client.publish('media/current', JSON.stringify({
-      title: track.title,
-      artist: track.artist,
-      album: track.album,
-      volume: track.volume,
-      isMuted: track.isMuted,
-      status: track.playbackStatus,
-      hasThumbnail: !!track.thumbnailBase64
+      title: data.title,
+      artist: data.artist,
+      album: data.album,
+      status: data.playbackStatus,
+      hasThumbnail: !!data.thumbnailBase64
     }));
 
     // Send thumbnail separately (it's large)
-    if (track.thumbnailBase64) {
-      client.publish('media/thumbnail', track.thumbnailBase64);
+    if (data.thumbnailBase64) {
+      client.publish('media/thumbnail', data.thumbnailBase64);
     }
   }
+});
+
+// Send volume data to ESP32 (separate topic)
+controller.on('volume', (data) => {
+  client.publish('media/volume', JSON.stringify({
+    volume: data.volume,
+    isMuted: data.isMuted
+  }));
 });
 
 // Receive commands from ESP32
@@ -251,7 +264,9 @@ client.on('message', (topic, message) => {
 | `restartDelay` | `number` | `1000` | Restart delay in milliseconds |
 | `executablePath` | `string` | `undefined` | Custom path to C# executable (auto-detected if not provided) |
 
-### TrackData
+### MediaData
+
+**Media data** - track information only (no volume fields):
 
 | Property | Type | Description |
 |----------|------|-------------|
@@ -264,6 +279,13 @@ client.on('message', (topic, message) => {
 | `playbackStatus` | `'Playing' \| 'Paused' \| 'Stopped' \| 'Unknown'` | Current playback status |
 | `thumbnailBase64` | `string \| null` | Base64-encoded JPEG thumbnail |
 | `isFocused` | `boolean` | Whether this is the focused session |
+
+### VolumeData
+
+**Volume data** - volume and mute status only:
+
+| Property | Type | Description |
+|----------|------|-------------|
 | `volume` | `number` | System volume level (0-100) |
 | `isMuted` | `boolean` | Whether volume is muted |
 
@@ -290,8 +312,8 @@ client.on('message', (topic, message) => {
 
 | Event | Payload | Description |
 |-------|---------|-------------|
-| `track` | `TrackData \| null` | Emitted when track changes or Yandex Music state changes |
-| `volume` | `{ volume: number, isMuted: boolean }` | Emitted when system volume changes |
+| `media` | `MediaData \| null` | Emitted when track/media info changes. `null` when Yandex Music is not running. |
+| `volume` | `VolumeData` | Emitted when system volume or mute state changes |
 | `error` | `Error` | Emitted when an error occurs |
 | `exit` | `number \| null` | Emitted when the controller process exits |
 

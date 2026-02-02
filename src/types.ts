@@ -33,6 +33,13 @@ export interface ControllerOptions {
    * @default undefined (auto-detect)
    */
   executablePath?: string;
+
+  /**
+   * Maximum restart delay in milliseconds with exponential backoff.
+   * Prevents restart spam by capping the delay at this value.
+   * @default 30000 (30 seconds)
+   */
+  maxRestartDelay?: number;
 }
 
 /**
@@ -101,9 +108,19 @@ export interface MediaData {
 }
 
 /**
+ * Connection state of the controller
+ */
+export type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error';
+
+/**
  * Events emitted by YandexMusicController
  */
 export interface ControllerEvents {
+  /**
+   * Emitted when connection state changes
+   */
+  state: [state: ConnectionState];
+
   /**
    * Emitted when track/media information changes
    * Receives null when Yandex Music is not running
@@ -126,7 +143,3 @@ export interface ControllerEvents {
   exit: [code: number | null];
 }
 
-/**
- * @deprecated Use MediaData instead. TrackData includes volume which is now separate.
- */
-export type TrackData = MediaData & VolumeData;
