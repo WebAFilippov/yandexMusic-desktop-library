@@ -17,13 +17,19 @@ TypeScript library for controlling **Yandex Music desktop application** on Windo
 npm install yandex-music-desktop-library
 ```
 
+**Note**: This package is **Windows-only** and includes a native C# executable (~90MB).
+
 ## 📖 Quick Start
 
 ```typescript
+// Option 1: Default import
+import ymc from 'yandex-music-desktop-library';
+
+// Option 2: Named import
 import { YandexMusicController } from 'yandex-music-desktop-library';
 
 // Create controller with custom options
-const controller = new YandexMusicController({
+const controller = new ymc({
   thumbnailSize: 200,      // Thumbnail size in pixels (default: 150)
   thumbnailQuality: 90,    // JPEG quality 1-100 (default: 85)
   autoRestart: true,       // Auto-restart on crash (default: true)
@@ -75,10 +81,10 @@ await controller.stop();
 ### Basic Usage
 
 ```typescript
-import { YandexMusicController } from 'yandex-music-desktop-library';
+import ymc from 'yandex-music-desktop-library';
 import { ipcMain } from 'electron';
 
-const controller = new YandexMusicController({
+const controller = new ymc({
   thumbnailSize: 150,
   thumbnailQuality: 85,
   autoRestart: true
@@ -134,10 +140,10 @@ This ensures the C# executable is unpacked from the ASAR archive so it can be sp
 Perfect for DIY hardware controllers:
 
 ```typescript
-import { YandexMusicController } from 'yandex-music-desktop-library';
+import ymc from 'yandex-music-desktop-library';
 import mqtt from 'mqtt';
 
-const controller = new YandexMusicController();
+const controller = new ymc();
 const client = mqtt.connect('mqtt://your-esp32-ip');
 
 // Start controller

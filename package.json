@@ -1,10 +1,18 @@
 {
   "name": "yandex-music-desktop-library",
-  "version": "1.0.0",
-  "description": "TypeScript library for controlling Yandex Music desktop application on Windows",
+  "version": "1.0.1",
+  "description": "TypeScript library for controlling Yandex Music desktop application on Windows. Provides event-based and promise-based APIs for media control and volume management.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    }
+  },
   "engines": {
     "node": ">=14.0.0"
   },
