@@ -42,3 +42,4 @@ coverage/
 
 # Binary files (already included via npm files field)
 # bin/win-x64/ should be tracked in git but not node_modules
+bin/**/*.pdb 
