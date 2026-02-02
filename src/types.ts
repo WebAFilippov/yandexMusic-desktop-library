@@ -36,9 +36,24 @@ export interface ControllerOptions {
 }
 
 /**
- * Data about the currently playing track
+ * Volume change event data
  */
-export interface TrackData {
+export interface VolumeData {
+  /**
+   * Current volume level (0-100)
+   */
+  volume: number;
+
+  /**
+   * Whether volume is muted
+   */
+  isMuted: boolean;
+}
+
+/**
+ * Media data - track information only (no volume)
+ */
+export interface MediaData {
   /**
    * Unique identifier for the session
    */
@@ -83,31 +98,6 @@ export interface TrackData {
    * Whether this is the currently focused media session
    */
   isFocused: boolean;
-
-  /**
-   * Current system volume level (0-100)
-   */
-  volume: number;
-
-  /**
-   * Whether the system volume is muted
-   */
-  isMuted: boolean;
-}
-
-/**
- * Volume change event data
- */
-export interface VolumeData {
-  /**
-   * Current volume level (0-100)
-   */
-  volume: number;
-
-  /**
-   * Whether volume is muted
-   */
-  isMuted: boolean;
 }
 
 /**
@@ -115,12 +105,13 @@ export interface VolumeData {
  */
 export interface ControllerEvents {
   /**
-   * Emitted when track information changes or when Yandex Music state changes
+   * Emitted when track/media information changes
+   * Receives null when Yandex Music is not running
    */
-  track: [data: TrackData | null];
+  media: [data: MediaData | null];
 
   /**
-   * Emitted when system volume changes
+   * Emitted when system volume or mute state changes
    */
   volume: [data: VolumeData];
 
@@ -134,3 +125,8 @@ export interface ControllerEvents {
    */
   exit: [code: number | null];
 }
+
+/**
+ * @deprecated Use MediaData instead. TrackData includes volume which is now separate.
+ */
+export type TrackData = MediaData & VolumeData;

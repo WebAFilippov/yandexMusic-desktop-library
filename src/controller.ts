@@ -4,7 +4,7 @@ import { EventEmitter } from 'events';
 import { fileURLToPath } from 'url';
 import { dirname, join, isAbsolute } from 'path';
 import { promises as fs } from 'fs';
-import { ControllerOptions, TrackData, VolumeData } from './types.js';
+import { ControllerOptions, MediaData, VolumeData } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -15,9 +15,9 @@ interface CommandMessage {
   value?: number;
 }
 
-interface SessionMessage {
-  type: 'session';
-  data: TrackData | null;
+interface Message {
+  type: 'media' | 'volume' | string;
+  data: MediaData | VolumeData | null;
 }
 
 /**
@@ -50,8 +50,7 @@ export class YandexMusicController extends EventEmitter {
   private restartTimer?: NodeJS.Timeout;
   private isStarted = false;
   private executablePath: string;
-  private lastTrackData: TrackData | null = null;
-  private lastVolumeData: { volume: number; isMuted: boolean } | null = null;
+
 
   /**
    * Creates a new YandexMusicController instance
@@ -216,56 +215,14 @@ export class YandexMusicController extends EventEmitter {
 
           rl.on('line', (line) => {
             try {
-              const msg = JSON.parse(line) as SessionMessage;
-              if (msg.type === 'session') {
-                const data = msg.data;
-                
-                if (data) {
-                  // Check if track data changed
-                  const trackChanged = !this.lastTrackData ||
-                    this.lastTrackData.title !== data.title ||
-                    this.lastTrackData.artist !== data.artist ||
-                    this.lastTrackData.album !== data.album ||
-                    this.lastTrackData.playbackStatus !== data.playbackStatus ||
-                    this.lastTrackData.thumbnailBase64 !== data.thumbnailBase64;
-                  
-                  if (trackChanged) {
-                    this.lastTrackData = {
-                      id: data.id,
-                      appId: data.appId,
-                      appName: data.appName,
-                      title: data.title,
-                      artist: data.artist,
-                      album: data.album,
-                      playbackStatus: data.playbackStatus,
-                      thumbnailBase64: data.thumbnailBase64,
-                      isFocused: data.isFocused,
-                      volume: data.volume,
-                      isMuted: data.isMuted
-                    };
-                    this.emit('track', this.lastTrackData);
-                  }
-                  
-                  // Check if volume data changed
-                  const volumeChanged = !this.lastVolumeData ||
-                    this.lastVolumeData.volume !== data.volume ||
-                    this.lastVolumeData.isMuted !== data.isMuted;
-                  
-                  if (volumeChanged) {
-                    this.lastVolumeData = {
-                      volume: data.volume,
-                      isMuted: data.isMuted
-                    };
-                    this.emit('volume', this.lastVolumeData);
-                  }
-                } else {
-                  // No data - Yandex Music not running
-                  if (this.lastTrackData !== null) {
-                    this.lastTrackData = null;
-                    this.emit('track', null);
-                  }
-                }
+              const msg = JSON.parse(line) as Message;
+              
+              if (msg.type === 'media') {
+                this.emit('media', msg.data as MediaData | null);
+              } else if (msg.type === 'volume') {
+                this.emit('volume', msg.data as VolumeData);
               }
+              // Ignore other types or unknown messages
             } catch {
               // Ignore non-JSON lines (debug output)
             }
@@ -330,8 +287,6 @@ export class YandexMusicController extends EventEmitter {
       this.process.on('exit', () => {
         clearTimeout(timeout);
         this.isStarted = false;
-        this.lastTrackData = null;
-        this.lastVolumeData = null;
         resolve();
       });
     });
@@ -448,11 +403,11 @@ export class YandexMusicController extends EventEmitter {
  */
 export interface YandexMusicController {
   /**
-   * Listen for track change events
-   * @param event - 'track'
-   * @param listener - Callback receiving TrackData or null when Yandex Music is not running
+   * Listen for media change events
+   * @param event - 'media'
+   * @param listener - Callback receiving MediaData or null when Yandex Music is not running
    */
-  on(event: 'track', listener: (data: TrackData | null) => void): this;
+  on(event: 'media', listener: (data: MediaData | null) => void): this;
 
   /**
    * Listen for volume change events
@@ -476,11 +431,11 @@ export interface YandexMusicController {
   on(event: 'exit', listener: (code: number | null) => void): this;
 
   /**
-   * Emit track event
-   * @param event - 'track'
-   * @param data - TrackData or null
+   * Emit media event
+   * @param event - 'media'
+   * @param data - MediaData or null
    */
-  emit(event: 'track', data: TrackData | null): boolean;
+  emit(event: 'media', data: MediaData | null): boolean;
 
   /**
    * Emit volume event

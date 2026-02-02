@@ -11,7 +11,11 @@ export { YandexMusicController } from './controller.js';
 export { YandexMusicController as default } from './controller.js';
 export type {
   ControllerOptions,
-  TrackData,
+  MediaData,
   VolumeData,
-  ControllerEvents
+  ControllerEvents,
+  /**
+   * @deprecated Use MediaData instead. TrackData combined media and volume which are now separate.
+   */
+  TrackData
 } from './types.js';
