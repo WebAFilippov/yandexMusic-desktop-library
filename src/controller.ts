@@ -50,6 +50,8 @@ export class YandexMusicController extends EventEmitter {
   private restartTimer?: NodeJS.Timeout;
   private isStarted = false;
   private executablePath: string;
+  private lastTrackData: TrackData | null = null;
+  private lastVolumeData: { volume: number; isMuted: boolean } | null = null;
 
   /**
    * Creates a new YandexMusicController instance
@@ -216,14 +218,52 @@ export class YandexMusicController extends EventEmitter {
             try {
               const msg = JSON.parse(line) as SessionMessage;
               if (msg.type === 'session') {
-                this.emit('track', msg.data);
+                const data = msg.data;
                 
-                // Also emit volume event when track data changes
-                if (msg.data) {
-                  this.emit('volume', {
-                    volume: msg.data.volume,
-                    isMuted: msg.data.isMuted
-                  });
+                if (data) {
+                  // Check if track data changed
+                  const trackChanged = !this.lastTrackData ||
+                    this.lastTrackData.title !== data.title ||
+                    this.lastTrackData.artist !== data.artist ||
+                    this.lastTrackData.album !== data.album ||
+                    this.lastTrackData.playbackStatus !== data.playbackStatus ||
+                    this.lastTrackData.thumbnailBase64 !== data.thumbnailBase64;
+                  
+                  if (trackChanged) {
+                    this.lastTrackData = {
+                      id: data.id,
+                      appId: data.appId,
+                      appName: data.appName,
+                      title: data.title,
+                      artist: data.artist,
+                      album: data.album,
+                      playbackStatus: data.playbackStatus,
+                      thumbnailBase64: data.thumbnailBase64,
+                      isFocused: data.isFocused,
+                      volume: data.volume,
+                      isMuted: data.isMuted
+                    };
+                    this.emit('track', this.lastTrackData);
+                  }
+                  
+                  // Check if volume data changed
+                  const volumeChanged = !this.lastVolumeData ||
+                    this.lastVolumeData.volume !== data.volume ||
+                    this.lastVolumeData.isMuted !== data.isMuted;
+                  
+                  if (volumeChanged) {
+                    this.lastVolumeData = {
+                      volume: data.volume,
+                      isMuted: data.isMuted
+                    };
+                    this.emit('volume', this.lastVolumeData);
+                  }
+                } else {
+                  // No data - Yandex Music not running
+                  if (this.lastTrackData !== null) {
+                    this.lastTrackData = null;
+                    this.emit('track', null);
+                  }
                 }
               }
             } catch {
@@ -290,6 +330,8 @@ export class YandexMusicController extends EventEmitter {
       this.process.on('exit', () => {
         clearTimeout(timeout);
         this.isStarted = false;
+        this.lastTrackData = null;
+        this.lastVolumeData = null;
         resolve();
       });
     });
