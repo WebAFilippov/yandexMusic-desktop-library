@@ -12,7 +12,8 @@ export { YandexMusicController as default } from './controller.js';
 export type {
   ControllerOptions,
   MediaData,
-  VolumeData,
+  AudioDevice,
+  ErrorData,
   ControllerEvents,
   ConnectionState,
 } from './types.js';

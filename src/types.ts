@@ -43,18 +43,53 @@ export interface ControllerOptions {
 }
 
 /**
- * Volume change event data
+ * Audio device information
  */
-export interface VolumeData {
+export interface AudioDevice {
+  /**
+   * Unique device identifier (Windows device ID)
+   */
+  id: string;
+
+  /**
+   * Human-readable device name (e.g., "Speakers (Realtek)")
+   */
+  name: string;
+
+  /**
+   * Whether this is the default/active device
+   */
+  isDefault: boolean;
+
+  /**
+   * Whether the device is muted
+   */
+  isMuted: boolean;
+
   /**
    * Current volume level (0-100)
    */
   volume: number;
+}
+
+/**
+ * Error data from C# service
+ */
+export interface ErrorData {
+  /**
+   * Error code for programmatic handling
+   */
+  code: string;
 
   /**
-   * Whether volume is muted
+   * Human-readable error message
    */
-  isMuted: boolean;
+  message: string;
+
+  /**
+   * Additional error details (optional)
+   */
+  details?: Record<string, unknown>;
 }
 
 /**
@@ -128,18 +163,18 @@ export interface ControllerEvents {
   media: [data: MediaData | null];
 
   /**
-   * Emitted when system volume or mute state changes
+   * Emitted when audio devices change (volume, mute, device added/removed, default changed)
+   * Array contains ALL audio devices
    */
-  volume: [data: VolumeData];
+  volume: [devices: AudioDevice[]];
 
   /**
-   * Emitted when an error occurs
+   * Emitted when an error occurs in the C# service
    */
-  error: [error: Error];
+  error: [error: ErrorData];
 
   /**
    * Emitted when the controller process exits
    */
   exit: [code: number | null];
 }
-

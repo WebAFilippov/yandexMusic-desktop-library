@@ -1,7 +1,7 @@
 {
   "name": "yandex-music-desktop-library",
-  "version": "3.5.0",
-  "description": "TypeScript library for controlling Yandex Music desktop application on Windows. Provides event-based and promise-based APIs for media control and volume management.",
+  "version": "4.0.0",
+  "description": "TypeScript library for controlling Yandex Music desktop application on Windows. Provides event-based and promise-based APIs for media control and multi-device volume management.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -31,6 +31,8 @@
     "windows",
     "media",
     "controller",
+    "volume",
+    "audio",
     "typescript"
   ],
   "author": "WebAFilippov",
@@ -49,8 +51,7 @@
   },
   "files": [
     "dist/**/*",
-    "bin/win-x64/libSkiaSharp.dll",
-    "bin/win-x64/YandexMusicController.exe",
+    "bin/win-x64/MediaControllerService.exe",
     "README.md",
     "LICENSE"
   ]

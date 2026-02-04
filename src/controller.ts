@@ -4,7 +4,7 @@ import { EventEmitter } from 'events';
 import { fileURLToPath } from 'url';
 import { dirname, join, isAbsolute } from 'path';
 import { promises as fs } from 'fs';
-import { ControllerOptions, MediaData, VolumeData, ConnectionState } from './types.js';
+import { ControllerOptions, MediaData, AudioDevice, ErrorData, ConnectionState } from './types.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,11 +13,12 @@ interface CommandMessage {
   command: string;
   stepPercent?: number;
   value?: number;
+  deviceId?: string;
 }
 
 interface CMessage {
-  type: 'media' | 'volume' | 'ping' | string;
-  data: MediaData | VolumeData | null;
+  type: 'media' | 'volume' | 'error' | 'ping' | string;
+  data: MediaData | AudioDevice[] | ErrorData | null;
 }
 
 // Extended Process interface for Electron
@@ -35,6 +36,8 @@ interface ExtendedProcess extends NodeJS.Process {
  * - Health check/ping
  * - Command retry logic
  * - Last data buffering
+ * - Multi-device audio support
+ * - Structured error handling
  * 
  * @example
  * ```typescript
@@ -57,9 +60,15 @@ interface ExtendedProcess extends NodeJS.Process {
  *   console.log('Now playing:', data?.title);
  * });
  * 
- * // Volume events (separate from media)
- * controller.on('volume', (data) => {
- *   console.log('Volume:', data.volume);
+ * // Volume events (all audio devices)
+ * controller.on('volume', (devices) => {
+ *   const defaultDevice = devices.find(d => d.isDefault);
+ *   console.log('Default device volume:', defaultDevice?.volume);
+ * });
+ * 
+ * // Error events from C# service
+ * controller.on('error', (errorData) => {
+ *   console.error('Error:', errorData.code, errorData.message);
  * });
  * 
  * await controller.start();
@@ -77,7 +86,7 @@ export class YandexMusicController extends EventEmitter {
   
   // Buffer last received data
   private lastMediaData: MediaData | null = null;
-  private lastVolumeData: VolumeData | null = null;
+  private lastVolumeData: AudioDevice[] = [];
 
   /**
    * Creates a new YandexMusicController instance
@@ -122,10 +131,24 @@ export class YandexMusicController extends EventEmitter {
   }
 
   /**
-   * Get last received volume data
+   * Get last received volume data (all audio devices)
    */
-  getLastVolumeData(): VolumeData | null {
+  getLastVolumeData(): AudioDevice[] {
     return this.lastVolumeData;
+  }
+
+  /**
+   * Get the default audio device
+   */
+  getDefaultDevice(): AudioDevice | undefined {
+    return this.lastVolumeData.find(d => d.isDefault);
+  }
+
+  /**
+   * Get a specific audio device by ID
+   */
+  getDevice(deviceId: string): AudioDevice | undefined {
+    return this.lastVolumeData.find(d => d.id === deviceId);
   }
 
   private setState(state: ConnectionState) {
@@ -158,7 +181,7 @@ export class YandexMusicController extends EventEmitter {
    * - Relative paths
    */
   private findExecutablePath(): string {
-    const executableName = 'YandexMusicController.exe';
+    const executableName = 'MediaControllerService.exe';
     const possiblePaths: string[] = [];
     
     // 1. Standard development location from __dirname
@@ -191,7 +214,7 @@ export class YandexMusicController extends EventEmitter {
    * Validates and finds the actual executable by checking multiple paths
    */
   private async validateExecutablePath(): Promise<string> {
-    const executableName = 'YandexMusicController.exe';
+    const executableName = 'MediaControllerService.exe';
     const possiblePaths: string[] = [];
     
     // Always try the configured path first
@@ -225,7 +248,7 @@ export class YandexMusicController extends EventEmitter {
 
     // None of the paths worked - throw with helpful message
     throw new Error(
-      `YandexMusicController.exe not found. Tried paths:\n` +
+      `MediaControllerService.exe not found. Tried paths:\n` +
       possiblePaths.map(p => `  - ${p}`).join('\n') +
       `\n\nPlease ensure the package is properly installed. ` +
       `For Electron, add to your build config:\n` +
@@ -256,11 +279,6 @@ export class YandexMusicController extends EventEmitter {
     
     this.executablePath = validPath;
 
-    const args = [
-      `--thumbnail-size=${this.options.thumbnailSize}`,
-      `--thumbnail-quality=${this.options.thumbnailQuality}`
-    ];
-
     return new Promise((resolve, reject) => {
       let resolved = false;
 
@@ -271,14 +289,17 @@ export class YandexMusicController extends EventEmitter {
       };
 
       try {
-        this.process = spawn(this.executablePath, args, {
+        this.process = spawn(this.executablePath, [], {
           windowsHide: true,
           stdio: ['pipe', 'pipe', 'pipe']
         });
 
         this.process.on('error', (err) => {
           this.setState('error');
-          this.emit('error', err);
+          this.emit('error', {
+            code: 'PROCESS_ERROR',
+            message: err.message
+          });
           if (!resolved) {
             resolved = true;
             reject(err);
@@ -301,14 +322,20 @@ export class YandexMusicController extends EventEmitter {
             this.restartAttempt++;
             
             this.setState('reconnecting');
-            this.emit('error', new Error(`Controller exited (code ${code}). Restarting in ${Math.round(delay/1000)}s...`));
+            this.emit('error', {
+              code: 'RESTARTING',
+              message: `Controller exited (code ${code}). Restarting in ${Math.round(delay/1000)}s...`
+            });
             
             this.restartTimer = setTimeout(() => {
               this.restartTimer = undefined;
               this.start().catch(() => {
                 // If restart fails, emit final error
                 this.setState('error');
-                this.emit('error', new Error('Auto-restart failed after multiple attempts'));
+                this.emit('error', {
+                  code: 'RESTART_FAILED',
+                  message: 'Auto-restart failed after multiple attempts'
+                });
               });
             }, delay);
           } else {
@@ -342,8 +369,10 @@ export class YandexMusicController extends EventEmitter {
                   }
                 }
               } else if (msg.type === 'volume') {
-                this.lastVolumeData = msg.data as VolumeData;
+                this.lastVolumeData = msg.data as AudioDevice[];
                 this.emit('volume', this.lastVolumeData);
+              } else if (msg.type === 'error') {
+                this.emit('error', msg.data as ErrorData);
               }
             } catch {
               // Ignore non-JSON lines (debug output)
@@ -360,7 +389,10 @@ export class YandexMusicController extends EventEmitter {
           this.readlineInterfaces.push(rl);
 
           rl.on('line', (line) => {
-            this.emit('error', new Error(line));
+            this.emit('error', {
+              code: 'STDERR',
+              message: line
+            });
           });
         }
 
@@ -536,41 +568,73 @@ export class YandexMusicController extends EventEmitter {
   /**
    * Increase volume by specified step
    * @param stepPercent - Percentage to increase (default: 3)
+   * @param deviceId - Optional device ID (uses default device if not specified)
    */
-  async volumeUp(stepPercent: number = 3): Promise<void> {
+  async volumeUp(stepPercent: number = 3, deviceId?: string): Promise<void> {
     return this.sendCommandWithRetry({ 
       command: 'volume_up', 
-      stepPercent: this.clamp(stepPercent, 1, 100) 
+      stepPercent: this.clamp(stepPercent, 1, 100),
+      deviceId
     });
   }
 
   /**
    * Decrease volume by specified step
    * @param stepPercent - Percentage to decrease (default: 3)
+   * @param deviceId - Optional device ID (uses default device if not specified)
    */
-  async volumeDown(stepPercent: number = 3): Promise<void> {
+  async volumeDown(stepPercent: number = 3, deviceId?: string): Promise<void> {
     return this.sendCommandWithRetry({ 
       command: 'volume_down', 
-      stepPercent: this.clamp(stepPercent, 1, 100) 
+      stepPercent: this.clamp(stepPercent, 1, 100),
+      deviceId
     });
   }
 
   /**
    * Set volume to specific value
    * @param value - Volume level 0-100
+   * @param deviceId - Optional device ID (uses default device if not specified)
    */
-  async setVolume(value: number): Promise<void> {
+  async setVolume(value: number, deviceId?: string): Promise<void> {
     return this.sendCommandWithRetry({ 
       command: 'set_volume', 
-      value: this.clamp(value, 0, 100) 
+      value: this.clamp(value, 0, 100),
+      deviceId
     });
   }
 
   /**
    * Toggle mute state
+   * @param deviceId - Optional device ID (uses default device if not specified)
    */
-  async toggleMute(): Promise<void> {
-    return this.sendCommandWithRetry({ command: 'toggle_mute' });
+  async toggleMute(deviceId?: string): Promise<void> {
+    return this.sendCommandWithRetry({ 
+      command: 'toggle_mute',
+      deviceId
+    });
+  }
+
+  /**
+   * Mute audio
+   * @param deviceId - Optional device ID (uses default device if not specified)
+   */
+  async mute(deviceId?: string): Promise<void> {
+    return this.sendCommandWithRetry({ 
+      command: 'mute',
+      deviceId
+    });
+  }
+
+  /**
+   * Unmute audio
+   * @param deviceId - Optional device ID (uses default device if not specified)
+   */
+  async unmute(deviceId?: string): Promise<void> {
+    return this.sendCommandWithRetry({ 
+      command: 'unmute',
+      deviceId
+    });
   }
 }
 
@@ -594,18 +658,18 @@ export interface YandexMusicController {
   on(event: 'media', listener: (data: MediaData | null) => void): this;
 
   /**
-   * Listen for volume change events
+   * Listen for volume change events (all audio devices)
    * @param event - 'volume'
-   * @param listener - Callback receiving VolumeData
+   * @param listener - Callback receiving array of AudioDevice
    */
-  on(event: 'volume', listener: (data: VolumeData) => void): this;
+  on(event: 'volume', listener: (devices: AudioDevice[]) => void): this;
 
   /**
-   * Listen for error events
+   * Listen for error events from C# service
    * @param event - 'error'
-   * @param listener - Callback receiving Error object
+   * @param listener - Callback receiving ErrorData
    */
-  on(event: 'error', listener: (error: Error) => void): this;
+  on(event: 'error', listener: (error: ErrorData) => void): this;
 
   /**
    * Listen for exit events
@@ -631,16 +695,16 @@ export interface YandexMusicController {
   /**
    * Emit volume event
    * @param event - 'volume'
-   * @param data - VolumeData
+   * @param devices - Array of AudioDevice
    */
-  emit(event: 'volume', data: VolumeData): boolean;
+  emit(event: 'volume', devices: AudioDevice[]): boolean;
 
   /**
    * Emit error event
    * @param event - 'error'
-   * @param error - Error object
+   * @param error - ErrorData
    */
-  emit(event: 'error', error: Error): boolean;
+  emit(event: 'error', error: ErrorData): boolean;
 
   /**
    * Emit exit event
